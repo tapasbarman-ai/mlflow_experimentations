@@ -1,6 +1,7 @@
-artifact_location: mlflow-artifacts:/0
-creation_time: 1724826784151
+artifact_location: file:///C:\Users\tb619\Videos\Projects\mlflow\YT-MLOPS-Experiments-with-MLFlow\mlruns/0
+creation_time: 1771784123507
 experiment_id: '0'
-last_update_time: 1724826784151
+last_update_time: 1771784123507
 lifecycle_stage: active
 name: Default
+workspace: default

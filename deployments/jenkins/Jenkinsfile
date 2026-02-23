@@ -52,8 +52,10 @@ pipeline {
 
         stage('7. Build Image') {
             steps {
-                sh "docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} -f deployments/docker/Dockerfile ."
-                sh "docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest"
+                script {
+                    sh "docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} -f deployments/docker/Dockerfile ."
+                    sh "docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest"
+                }
             }
         }
 
@@ -66,6 +68,7 @@ pipeline {
         stage('9. Push to Nexus') {
             steps {
                 script {
+                    // Log in to Nexus
                     withCredentials([usernamePassword(credentialsId: "${NEXUS_CREDENTIALS_ID}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                         sh "echo $PASS | docker login -u $USER --password-stdin localhost:8082"
                         sh "docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}"
