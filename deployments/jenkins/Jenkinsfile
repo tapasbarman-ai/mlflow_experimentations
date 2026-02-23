@@ -29,7 +29,7 @@ pipeline {
 
         stage('4. SCA (OWASP Dependency Check)') {
             steps {
-                dependencyCheck additionalArguments: '--format HTML --format JSON', odcInstallation: 'DP-Check'
+                dependencyCheck additionalArguments: '--format HTML --format JSON --format XML', odcInstallation: 'DP-Check'
                 dependencyCheckPublisher pattern: 'dependency-check-report.xml'
             }
         }
