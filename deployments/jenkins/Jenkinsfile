@@ -17,13 +17,13 @@ pipeline {
 
         stage('2. Secrets Detection (Gitleaks)') {
             steps {
-                sh 'gitleaks detect --source . --verbose --redact || true'
+                sh 'docker run --rm -v $(pwd):/path zricethezav/gitleaks:latest detect --source /path --verbose --redact || true'
             }
         }
 
         stage('3. SAST (Semgrep)') {
             steps {
-                sh 'semgrep scan --config auto --output semgrep-report.json || true'
+                sh 'docker run --rm -v $(pwd):/src returntocorp/semgrep semgrep scan --config auto --output semgrep-report.json || true'
             }
         }
 
@@ -59,7 +59,7 @@ pipeline {
 
         stage('8. Image Scan (Trivy)') {
             steps {
-                sh "trivy image --severity HIGH,CRITICAL --format json --output trivy-report.json ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                sh "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image --severity HIGH,CRITICAL --format json --output trivy-report.json ${DOCKER_IMAGE}:${BUILD_NUMBER}"
             }
         }
 
