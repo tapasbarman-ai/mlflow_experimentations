@@ -9,6 +9,11 @@ pipeline {
     }
 
     stages {
+        stage('0. Git Fix') {
+            steps {
+                sh 'git config --global --add safe.directory "*"'
+            }
+        }
         stage('1. Git Checkout') {
             steps {
                 checkout scm
