@@ -23,7 +23,7 @@ pipeline {
                 git branch: 'main', url: "${REPO_URL}"
                 sh 'git config --global --add safe.directory "*"'
                 // Ensure DVC is initialized and tracked data is pulled
-                sh 'pip install dvc[all] mlflow evidently fastapi uvicorn'
+                sh 'pip install --break-system-packages dvc[all] mlflow evidently fastapi uvicorn'
             }
         }
 
