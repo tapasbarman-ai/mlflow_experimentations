@@ -1,0 +1,92 @@
+pipeline {
+    agent any
+
+    environment {
+        SCANNER_HOME = tool 'SonarScanner'
+        APP_NAME = "bike-demand-predictor"
+        DOCKER_IMAGE = "localhost:8082/${APP_NAME}"
+        NEXUS_CREDENTIALS_ID = 'nexus-creds'
+    }
+
+    stages {
+        stage('1. Git Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('2. Secrets Detection (Gitleaks)') {
+            steps {
+                sh 'gitleaks detect --source . --verbose --redact || true'
+            }
+        }
+
+        stage('3. SAST (Semgrep)') {
+            steps {
+                sh 'semgrep scan --config auto --output semgrep-report.json || true'
+            }
+        }
+
+        stage('4. SCA (OWASP Dependency Check)') {
+            steps {
+                dependencyCheck additionalArguments: '--format HTML --format JSON', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: 'dependency-check-report.xml'
+            }
+        }
+
+        stage('5. Static Analysis (SonarQube)') {
+            steps {
+                withSonarQubeEnv('SonarServer') {
+                    sh "${SCANNER_HOME}/bin/sonar-scanner -Dproject.settings=config/sonar-project.properties"
+                }
+            }
+        }
+
+        stage('6. Quality Gate') {
+            steps {
+                timeout(time: 1, unit: 'HOURS') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('7. Build Image') {
+            steps {
+                sh "docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} -f deployments/docker/Dockerfile ."
+                sh "docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest"
+            }
+        }
+
+        stage('8. Image Scan (Trivy)') {
+            steps {
+                sh "trivy image --severity HIGH,CRITICAL --format json --output trivy-report.json ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+            }
+        }
+
+        stage('9. Push to Nexus') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: "${NEXUS_CREDENTIALS_ID}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                        sh "echo $PASS | docker login -u $USER --password-stdin localhost:8082"
+                        sh "docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                        sh "docker push ${DOCKER_IMAGE}:latest"
+                    }
+                }
+            }
+        }
+
+        stage('10. DAST (OWASP ZAP)') {
+            steps {
+                // Assuming the container is running or we start a ephemeral one for scan
+                sh 'docker run --rm -v $(pwd):/zap/wrk/:rw -t owasp/zap2docker-stable zap-baseline.py -t http://localhost:8000 -r zap-report.html || true'
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: '*.json, *.html, artifacts/**/*', allowEmptyArchive: true
+            echo 'Archiving all security reports and MLOps artifacts...'
+        }
+    }
+}

@@ -1,0 +1,12 @@
+[allowlist]
+description = "Global allowlist"
+paths = [
+    "venv",
+    "mlruns",
+    ".git"
+]
+
+[[rules]]
+description = "Potential Python Secret"
+regex = '''(?i)(password|secret|key|token|auth)\s*[:=]\s*['"][^'"]+['"]'''
+severity = "high"

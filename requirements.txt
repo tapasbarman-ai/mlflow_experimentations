@@ -1,0 +1,9 @@
+mlflow
+pandas
+scikit-learn
+matplotlib
+evidently==0.7.20
+requests
+fastapi
+uvicorn
+python-multipart

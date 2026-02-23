@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bike-predictor-deploy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bike-predictor
+  template:
+    metadata:
+      labels:
+        app: bike-predictor
+    spec:
+      containers:
+      - name: bike-predictor
+        image: tapasbarman/bike-demand-predictor:latest
+        ports:
+        - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bike-predictor-service
+spec:
+  selector:
+    app: bike-predictor
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: LoadBalancer
