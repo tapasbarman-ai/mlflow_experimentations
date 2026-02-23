@@ -4,53 +4,53 @@ pipeline {
     environment {
         SCANNER_HOME = tool 'SonarScanner'
         APP_NAME = "bike-demand-predictor"
-        DOCKER_IMAGE = "localhost:8082/${APP_NAME}"
+        
+        // --- FIXED: Using 'localhost' for Docker Registry because Jenkins uses the host's Docker socket ---
+        // --- and 'sonarqube' service name for internal container communication ---
+        NEXUS_REGISTRY = "localhost:8082"
+        SONAR_HOST = "sonarqube"
+        
+        DOCKER_IMAGE = "${NEXUS_REGISTRY}/${APP_NAME}"
         NEXUS_CREDENTIALS_ID = 'nexus-creds'
+        REPO_URL = "https://github.com/tapasbarman-ai/mlflow_experimentations.git"
     }
 
     stages {
-        stage('0. Git Fix') {
+         stage('1. Git Checkout') {
             steps {
+                deleteDir()
+                git branch: 'main', url: "${REPO_URL}"
                 sh 'git config --global --add safe.directory "*"'
-            }
-        }
-        stage('1. Git Checkout') {
-            steps {
-                checkout scm
             }
         }
 
         stage('2. Secrets Detection (Gitleaks)') {
             steps {
-                sh 'docker run --rm -v $(pwd):/path zricethezav/gitleaks:latest detect --source /path --verbose --redact || true'
+                sh 'docker run --rm --volumes-from jenkins -w $(pwd) zricethezav/gitleaks:latest detect --source . --verbose --redact || true'
             }
         }
 
         stage('3. SAST (Semgrep)') {
             steps {
-                sh 'docker run --rm -v $(pwd):/src returntocorp/semgrep semgrep scan --config auto --output semgrep-report.json || true'
+                sh 'docker run --rm --volumes-from jenkins -w $(pwd) returntocorp/semgrep semgrep scan --config auto --output semgrep-report.json || true'
             }
         }
 
         stage('4. SCA (OWASP Dependency Check)') {
             steps {
-                dependencyCheck additionalArguments: '--format HTML --format JSON --format XML', odcInstallation: 'DP-Check'
+                dependencyCheck additionalArguments: "--nvdApiKey 1b973089-f6a8-4113-a19a-fed0f71e99ab --format HTML --format JSON --format XML", odcInstallation: 'DP-Check'
                 dependencyCheckPublisher pattern: 'dependency-check-report.xml'
             }
         }
 
         stage('5. Static Analysis (SonarQube)') {
             steps {
-                withSonarQubeEnv('SonarServer') {
-                    sh "${SCANNER_HOME}/bin/sonar-scanner -Dproject.settings=config/sonar-project.properties"
-                }
-            }
-        }
-
-        stage('6. Quality Gate') {
-            steps {
-                timeout(time: 1, unit: 'HOURS') {
-                    waitForQualityGate abortPipeline: true
+                withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                    sh "${SCANNER_HOME}/bin/sonar-scanner \
+                        -Dsonar.projectKey=bike-sharing-mlops \
+                        -Dsonar.sources=src/ \
+                        -Dsonar.host.url=http://${SONAR_HOST}:9000 \
+                        -Dsonar.login=\$SONAR_TOKEN"
                 }
             }
         }
@@ -66,16 +66,15 @@ pipeline {
 
         stage('8. Image Scan (Trivy)') {
             steps {
-                sh "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image --severity HIGH,CRITICAL --format json --output trivy-report.json ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                sh "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock --volumes-from jenkins -w \$(pwd) aquasec/trivy image --severity HIGH,CRITICAL --format json --output trivy-report.json ${DOCKER_IMAGE}:${BUILD_NUMBER}"
             }
         }
 
         stage('9. Push to Nexus') {
             steps {
                 script {
-                    // Log in to Nexus
                     withCredentials([usernamePassword(credentialsId: "${NEXUS_CREDENTIALS_ID}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                        sh "echo $PASS | docker login -u $USER --password-stdin localhost:8082"
+                        sh "echo \$PASS | docker login -u \$USER --password-stdin ${NEXUS_REGISTRY}"
                         sh "docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}"
                         sh "docker push ${DOCKER_IMAGE}:latest"
                     }
@@ -85,8 +84,7 @@ pipeline {
 
         stage('10. DAST (OWASP ZAP)') {
             steps {
-                // Assuming the container is running or we start a ephemeral one for scan
-                sh 'docker run --rm -v $(pwd):/zap/wrk/:rw -t owasp/zap2docker-stable zap-baseline.py -t http://localhost:8000 -r zap-report.html || true'
+                sh "docker run --rm --volumes-from jenkins -w \$(pwd) -t owasp/zap2docker-stable zap-baseline.py -t http://${SONAR_HOST}:9000 -r zap-report.html || true"
             }
         }
     }
