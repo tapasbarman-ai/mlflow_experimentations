@@ -22,8 +22,10 @@ pipeline {
                 deleteDir()
                 git branch: 'main', url: "${REPO_URL}"
                 sh 'git config --global --add safe.directory "*"'
-                // Ensure DVC is initialized and tracked data is pulled
-                sh 'pip install --break-system-packages dvc[all] mlflow evidently fastapi uvicorn'
+                // Requirement: Dataset version tracking mandatory
+                // Using a virtual environment to bypass "externally-managed-environment" issues
+                sh 'python3 -m venv venv'
+                sh './venv/bin/pip install dvc[all] mlflow evidently fastapi uvicorn'
             }
         }
 
@@ -32,8 +34,8 @@ pipeline {
                 script {
                     echo "Checking Dataset Integrity..."
                     // Requirement: Dataset version tracking mandatory
-                    sh 'dvc status'
-                    sh 'dvc pull || echo "No remote data found, using local cache"'
+                    sh './venv/bin/dvc status'
+                    sh './venv/bin/dvc pull || echo "No remote data found, using local cache"'
                 }
             }
         }
@@ -51,7 +53,7 @@ pipeline {
                 script {
                     echo "Changes detected! Running ML Training Pipeline..."
                     // Requirement: Model version tagging & Reproducibility logs maintained
-                    sh 'python3 src/pipeline.py'
+                    sh './venv/bin/python src/pipeline.py'
                 }
             }
         }
