@@ -18,11 +18,14 @@ pipeline {
         stage('1. Environment Setup') {
             steps {
                 script {
-                    echo "INDUSTRIAL MLOPS PIPELINE - VERSION 1.1 (VENV FIX)"
+                    echo "INDUSTRIAL MLOPS PIPELINE - VERSION 1.2 (AUTO-FIX)"
                     sh 'git config --global --add safe.directory "*"'
                     
+                    // AUTO-FIX: Install venv package if missing (requires root agent)
+                    sh 'apt-get update && apt-get install -y python3-venv'
+                    
                     // Create virtual environment to avoid PEP 668 errors
-                    sh 'python3 -m venv .mlops_venv'
+                    sh 'rm -rf .mlops_venv && python3 -m venv .mlops_venv'
                     sh './.mlops_venv/bin/pip install --upgrade pip'
                     sh './.mlops_venv/bin/pip install dvc[all] mlflow evidently fastapi uvicorn scikit-learn pandas'
                 }
