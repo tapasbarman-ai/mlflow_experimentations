@@ -18,7 +18,7 @@ pipeline {
         NEXUS_CREDENTIALS_ID = 'nexus-creds'
         
         // MLflow Tracking within the Docker network
-        MLFLOW_TRACKING_URI = "file://${WORKSPACE}/mlruns"
+        MLFLOW_TRACKING_URI = "sqlite:///${WORKSPACE}/mlflow.db"
     }
 
     stages {

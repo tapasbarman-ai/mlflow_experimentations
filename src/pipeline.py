@@ -23,14 +23,13 @@ from evidently import Report
 from evidently.presets import DataDriftPreset
 
 
-# Standardize tracking to the project root mlruns folder
+# Standardize tracking to the project root mlflow.db
 script_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(script_dir)
-mlruns_path = os.path.join(root_dir, "mlruns")
-data_dir = os.path.join(root_dir, "data")
-os.makedirs(data_dir, exist_ok=True)
+db_path = os.path.join(root_dir, "mlflow.db")
 
-mlflow.set_tracking_uri(f"file:///{mlruns_path}")
+# Standardize MLflow to use SQLite for Model Registry stability
+mlflow.set_tracking_uri(f"sqlite:///{db_path}")
 mlflow.set_experiment("Bike_Sharing_Industrial_MLOps_v2")
 mlflow.sklearn.autolog()
 

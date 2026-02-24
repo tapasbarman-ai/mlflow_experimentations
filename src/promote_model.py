@@ -3,6 +3,12 @@ from mlflow.tracking import MlflowClient
 import os
 import argparse
 
+# Standardize tracking to the project root mlflow.db
+script_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(script_dir)
+db_path = os.path.join(root_dir, "mlflow.db")
+mlflow.set_tracking_uri(f"sqlite:///{db_path}")
+
 def promote_model(model_name, stage="Staging"):
     print(f"Promoting latest version of model '{model_name}' to '{stage}'...")
     
