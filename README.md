@@ -86,7 +86,7 @@ graph TD
 ### 🔵 SonarQube Code Quality
 *Total visibility into code health, security hotspots, and reliability.*
 
-![SonarQube Dashboard](docs/images/sonarqube_report.png)
+![SonarQube Dashboard](docs/images/sonarcube.png)
 
 ---
 
