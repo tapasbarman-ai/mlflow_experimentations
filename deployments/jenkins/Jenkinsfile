@@ -65,8 +65,9 @@ pipeline {
                             -v ${WORKSPACE}:/src \
                             owasp/dependency-check \
                             --scan /src \
-                            --format HTML --format JSON --format XML \
+                            --format HTML \
                             --out /src \
+                            --noupdate \
                             --enableExperimental || true
                     '''
                 }
