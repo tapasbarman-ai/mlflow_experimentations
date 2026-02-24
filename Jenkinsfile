@@ -1,13 +1,13 @@
 pipeline {
     parameters {
-        booleanParam(name: 'FORCE_TRAIN', defaultValue: true, description: 'Force model retraining (Important for First Run)')
+        booleanParam(name: 'FORCE_TRAIN', defaultValue: true, description: 'Force model retraining (First Run)')
     }
 
-    // Agent with all ML dependencies pre-installed
+    // Stabilized Agent Definition
     agent {
         dockerfile {
             filename 'deployments/jenkins/Dockerfile.ml-agent'
-            dir '.'
+            // Simplified args for better workspace mapping
             args '-u root:root --network devsecops-network -v /var/run/docker.sock:/var/run/docker.sock'
         }
     }
@@ -23,12 +23,13 @@ pipeline {
     }
 
     stages {
-        stage('1. Pre-Flight & Checkout') {
+        stage('1. Pre-Flight & Workspace Setup') {
             steps {
                 script {
-                    echo "--- UNIFIED DEVSECOPS + MLOPS PIPELINE ---"
+                    echo "--- UNIFIED MLOPS + DEVSECOPS PIPELINE V3.0 ---"
                     sh 'git config --global --add safe.directory "*"'
                     sh 'ls -la'
+                    // Ensure a fresh tracking database for high integrity
                     sh 'rm -f mlflow.db || true'
                 }
             }
@@ -36,12 +37,12 @@ pipeline {
 
         stage('2. Security Scanning (SAST)') {
             parallel {
-                stage('Secrets (Gitleaks)') {
+                stage('Secrets Detection') {
                     steps {
                         sh 'docker run --rm -v ${WORKSPACE}:/src -w /src zricethezav/gitleaks:latest detect --source . --verbose --redact || true'
                     }
                 }
-                stage('Code Scan (Semgrep)') {
+                stage('Code Quality Scan') {
                     steps {
                         sh 'docker run --rm -v ${WORKSPACE}:/src -w /src returntocorp/semgrep semgrep scan --config auto || true'
                     }
@@ -49,9 +50,8 @@ pipeline {
             }
         }
 
-        stage('3. SCA (OWASP Dependency Check)') {
+        stage('3. SCA (Dependency Check)') {
             steps {
-                // Scans requirements.txt for vulnerable libraries
                 dependencyCheck additionalArguments: "--format HTML --format JSON --format XML", odcInstallation: 'DP-Check'
                 dependencyCheckPublisher pattern: 'dependency-check-report.xml'
             }
@@ -60,7 +60,7 @@ pipeline {
         stage('4. Data Validation') {
             steps {
                 script {
-                    echo "MLOPS: Validating Dataset..."
+                    echo "MLOPS: Pulling Data & Validating..."
                     sh 'dvc pull || echo "DVC pull failed, using local data"'
                     sh 'python3 src/data_validation.py'
                 }
@@ -77,7 +77,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "MLOPS: Executing Training & Tracking..."
+                    echo "MLOPS: Training Model & Logging to MLflow..."
                     sh 'python3 src/pipeline.py'
                 }
             }
@@ -85,23 +85,25 @@ pipeline {
 
         stage('6. Static Analysis (SonarQube)') {
             steps {
-                withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
-                    sh "${SCANNER_HOME}/bin/sonar-scanner \
-                        -Dsonar.projectKey=bike-sharing-mlops \
-                        -Dsonar.sources=src/ \
-                        -Dsonar.host.url=http://${SONAR_HOST}:9000 \
-                        -Dsonar.login=\$SONAR_TOKEN"
-                }
-                timeout(time: 1, unit: 'HOURS') {
-                    waitForQualityGate abortPipeline: true
+                script {
+                    withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                        sh "${SCANNER_HOME}/bin/sonar-scanner \
+                            -Dsonar.projectKey=bike-sharing-mlops \
+                            -Dsonar.sources=src/ \
+                            -Dsonar.host.url=http://${SONAR_HOST}:9000 \
+                            -Dsonar.login=\$SONAR_TOKEN"
+                    }
+                    timeout(time: 1, unit: 'HOURS') {
+                        waitForQualityGate abortPipeline: true
+                    }
                 }
             }
         }
 
-        stage('7. Governance (Promotion to Staging)') {
+        stage('7. Governance & Promotion') {
             steps {
                 script {
-                    echo "MLOPS: Promoting Model to Staging Registry..."
+                    echo "MLOPS: Promoting Model to Staging..."
                     sh 'python3 src/promote_model.py --stage Staging'
                     archiveArtifacts artifacts: 'artifacts/**/*', allowEmptyArchive: true
                 }
@@ -111,15 +113,14 @@ pipeline {
         stage('8. Build & Compliance Audit') {
             steps {
                 script {
-                    echo "Building Production API & Verifying Audit Logs..."
+                    echo "MLOPS: Building Container & Auditing Logs..."
                     sh "docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} -f deployments/docker/Dockerfile ."
                     
-                    // Compliance Check: Run container and verify it logs predictions
-                    sh "docker run -d --name compliance-test-${BUILD_NUMBER} --network devsecops-network ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                    sh "docker run -d --name audit-${BUILD_NUMBER} --network devsecops-network ${DOCKER_IMAGE}:${BUILD_NUMBER}"
                     sleep 15
-                    sh "curl -s -X POST http://compliance-test-${BUILD_NUMBER}:8000/predict -d '{\"hr\":10, \"workingday\":1}' -H \"Content-Type: application/json\""
-                    sh "docker logs compliance-test-${BUILD_NUMBER}"
-                    sh "docker stop compliance-test-${BUILD_NUMBER} && docker rm compliance-test-${BUILD_NUMBER}"
+                    sh "curl -s -X POST http://audit-${BUILD_NUMBER}:8000/predict -d '{\"hr\":10, \"workingday\":1}' -H \"Content-Type: application/json\""
+                    sh "docker logs audit-${BUILD_NUMBER}"
+                    sh "docker stop audit-${BUILD_NUMBER} && docker rm audit-${BUILD_NUMBER}"
                 }
             }
         }
@@ -130,12 +131,13 @@ pipeline {
             }
         }
 
-        stage('10. Release & Promotion') {
+        stage('10. Release & Production') {
             steps {
                 script {
                     withCredentials([usernamePassword(credentialsId: "${NEXUS_CREDENTIALS_ID}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                         sh "echo \$PASS | docker login -u \$USER --password-stdin ${NEXUS_REGISTRY}"
                         sh "docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                        sh "docker push ${DOCKER_IMAGE}:latest"
                     }
                     echo "MLOPS: Promoting to PRODUCTION..."
                     sh 'python3 src/promote_model.py --stage Production'
@@ -145,7 +147,6 @@ pipeline {
 
         stage('11. DAST (OWASP ZAP)') {
             steps {
-                // Dynamic security test against the SonarQube UI or your own API
                 sh "docker run --rm -t owasp/zap2docker-stable zap-baseline.py -t http://${SONAR_HOST}:9000 -r zap-report.html || true"
             }
         }
@@ -153,8 +154,15 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: '*.json, *.html', allowEmptyArchive: true
-            echo "CI/CD/MLOps Pipeline Finished."
+            script {
+                echo "Pipeline Finished. Attempting to archive security reports..."
+                // Wrapping in try-catch to prevent pipeline failure if workspace is lost
+                try {
+                    archiveArtifacts artifacts: '*.json, *.html', allowEmptyArchive: true
+                } catch (Exception e) {
+                    echo "Could not archive reports: ${e.message}"
+                }
+            }
         }
     }
 }
