@@ -1,30 +1,32 @@
-# Use a lightweight Python base image
+# Production Serving Image
 FROM python:3.9-slim
 
-# Set working directory
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
     curl \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install Python dependencies
+# Copy requirements and install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the core code and config
+# Copy source code
 COPY src/ ./src/
-COPY config/ ./config/
-COPY data/ ./data/
 
-# Create folders for artifacts and MLflow runs
-RUN mkdir -p /app/artifacts /app/mlruns
+# IMPORTANT: Copy the trained model database and artifacts into the container
+# This makes the container self-contained for production
+COPY mlflow.db .
+COPY mlruns_artifacts/ ./mlruns_artifacts/
 
-# Set Environment Variables
-ENV MLFLOW_TRACKING_URI=file:///app/mlruns
+# Set Environment Variables for production serving
+ENV MLFLOW_TRACKING_URI=sqlite:///app/mlflow.db
+ENV MODEL_STAGE=Production
+ENV PORT=8000
 
-# Default command: run the training pipeline
-CMD ["python", "src/pipeline.py"]
+# Expose the API port
+EXPOSE 8000
+
+# Start the FastAPI serving service
+CMD ["python", "src/serve.py"]

@@ -22,13 +22,18 @@ pipeline {
         MLFLOW_TRACKING_URI = "sqlite:///${WORKSPACE}/mlflow.db"
     }
 
+    parameters {
+        booleanParam(name: 'FORCE_TRAIN', defaultValue: false, description: 'Force model retraining even if no code changes detected')
+    }
+
     stages {
         stage('1. Pre-Flight Checks') {
             steps {
                 script {
                     echo "--- INDUSTRIAL MLOPS PIPELINE V2.0 (DOCKER-AGENT) ---"
                     sh 'git config --global --add safe.directory "*"'
-                    // Check if workspace matches expectations
+                    // Clean up potential lock files or old DBs if necessary for a clean run
+                    sh 'rm -f mlflow.db || true'
                     sh 'ls -R'
                 }
             }

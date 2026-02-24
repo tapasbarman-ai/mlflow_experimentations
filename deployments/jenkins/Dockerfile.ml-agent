@@ -11,10 +11,13 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Pre-install key MLOps libraries for faster builds
-RUN pip install --no-cache-dir \
-    mlflow \
-    dvc[all] \
+# Pre-install key MLOps libraries
+# Optimization: We use 'dvc' instead of 'dvc[all]' to avoid massive dependency resolution 
+# loops caused by conflicting cloud provider libraries (S3, Azure, GCP).
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+    mlflow==2.10.2 \
+    dvc==3.48.4 \
     scikit-learn \
     pandas \
     evidently \
