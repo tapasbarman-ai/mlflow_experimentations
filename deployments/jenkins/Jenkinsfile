@@ -181,17 +181,16 @@ pipeline {
 
     post {
         always {
-            echo "Pipeline finished. Archiving reports..."
-            archiveArtifacts artifacts: '*.json, *.html, *.xml', allowEmptyArchive: true
+            echo "Pipeline finished."
         }
         success {
             echo "✅ Pipeline completed successfully!"
         }
         unstable {
-            echo "⚠️ Pipeline completed with some optional stages skipped/failed."
+            echo "⚠️ Pipeline completed with some optional stages marked UNSTABLE."
         }
         failure {
-            echo "❌ Pipeline failed. Check the logs above."
+            echo "❌ Pipeline failed. Check the stage logs above."
         }
     }
 }
