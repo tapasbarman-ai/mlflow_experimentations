@@ -1,7 +1,10 @@
 services:
   jenkins:
-    image: jenkins/jenkins:lts
+    build:
+      context: .
+      dockerfile: deployments/jenkins/Dockerfile
     container_name: jenkins
+    user: root
     restart: always
     ports:
       - "8080:8080"
@@ -9,16 +12,17 @@ services:
     volumes:
       - jenkins_home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/bin/docker:/usr/bin/docker
     networks:
       - devsecops-network
 
   sonarqube:
-    image: sonarqube:lts-community
+    image: sonarqube:community
     container_name: sonarqube
     restart: always
     ports:
       - "9000:9000"
+    environment:
+      - SONAR_SEARCH_JAVAADDITIONALOPTS=-Dnode.store.allow_mmap=false
     volumes:
       - sonarqube_data:/opt/sonarqube/data
       - sonarqube_extensions:/opt/sonarqube/extensions

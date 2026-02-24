@@ -22,7 +22,8 @@ app = FastAPI(title="Bike Demand Prediction Service (Industrial v2)")
 # Configuration
 script_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(script_dir)
-MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{os.path.join(root_dir, 'mlflow.db')}")
+db_path_raw = os.path.join(root_dir, "mlflow.db").replace("\\", "/")
+MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{db_path_raw}")
 MODEL_NAME = "Bike_Demand_Predictor"
 # Default to "None" if no production model is tagged yet, so the local test works
 MODEL_STAGE = os.getenv("MODEL_STAGE", "None") 
