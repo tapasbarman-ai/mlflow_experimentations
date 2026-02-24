@@ -13,6 +13,8 @@ mlruns/
 mlflow.db
 *.png
 *.html
+!docs/**/*.png
+!docs/**/*.html
 src/bike_hour.csv
 src/data.csv
 mlruns/
