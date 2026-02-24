@@ -45,6 +45,7 @@ services:
 networks:
   devsecops-network:
     driver: bridge
+    name: devsecops-network
 
 volumes:
   jenkins_home:
