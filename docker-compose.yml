@@ -46,6 +46,11 @@ networks:
   devsecops-network:
     driver: bridge
     name: devsecops-network
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
 volumes:
   jenkins_home:
