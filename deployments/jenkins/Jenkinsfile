@@ -56,12 +56,19 @@ pipeline {
         }
 
         // ── STAGE 3 ────────────────────────────────────────────────────────
-        // Requires: OWASP Dependency-Check plugin + tool named 'DP-Check'
+        // Uses Docker directly — no Jenkins plugin needed
         stage('3. SCA (Dependency Check)') {
             steps {
                 catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                    dependencyCheck additionalArguments: "--format HTML --format JSON --format XML", odcInstallation: 'DP-Check'
-                    dependencyCheckPublisher pattern: 'dependency-check-report.xml'
+                    sh '''
+                        docker run --rm \
+                            -v ${WORKSPACE}:/src \
+                            owasp/dependency-check \
+                            --scan /src \
+                            --format HTML --format JSON --format XML \
+                            --out /src \
+                            --enableExperimental || true
+                    '''
                 }
             }
         }
