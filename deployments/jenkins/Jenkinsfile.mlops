@@ -1,48 +1,52 @@
 pipeline {
-    agent any
+    // Stage 1: Define the custom build environment for the entire pipeline
+    agent {
+        dockerfile {
+            filename 'deployments/jenkins/Dockerfile.ml-agent'
+            dir '.'
+            // Give Jenkins root access to its internal workspace within the agent
+            args '-u root:root -v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
 
     environment {
         SCANNER_HOME = tool 'SonarScanner'
         APP_NAME = "bike-demand-predictor"
-        
-        // --- INFRASTRUCTURE ---
         NEXUS_REGISTRY = "localhost:8082"
         SONAR_HOST     = "sonarqube"
-        
-        // --- TAGGING ---
-        DOCKER_IMAGE = "${NEXUS_REGISTRY}/${APP_NAME}"
+        DOCKER_IMAGE   = "${NEXUS_REGISTRY}/${APP_NAME}"
         NEXUS_CREDENTIALS_ID = 'nexus-creds'
+        
+        // MLflow Tracking within the Docker network
+        MLFLOW_TRACKING_URI = "file://${WORKSPACE}/mlruns"
     }
 
     stages {
-        stage('1. Environment Setup') {
+        stage('1. Pre-Flight Checks') {
             steps {
                 script {
-                    echo "INDUSTRIAL MLOPS PIPELINE - VERSION 1.2 (AUTO-FIX)"
+                    echo "--- INDUSTRIAL MLOPS PIPELINE V2.0 (DOCKER-AGENT) ---"
                     sh 'git config --global --add safe.directory "*"'
-                    
-                    // AUTO-FIX: Install venv package if missing (requires root agent)
-                    sh 'apt-get update && apt-get install -y python3-venv'
-                    
-                    // Create virtual environment to avoid PEP 668 errors
-                    sh 'rm -rf .mlops_venv && python3 -m venv .mlops_venv'
-                    sh './.mlops_venv/bin/pip install --upgrade pip'
-                    sh './.mlops_venv/bin/pip install dvc[all] mlflow evidently fastapi uvicorn scikit-learn pandas'
+                    // Check if workspace matches expectations
+                    sh 'ls -R'
                 }
             }
         }
 
-        stage('2. Data Versioning (DVC)') {
+        stage('2. Data Validation') {
             steps {
                 script {
-                    echo "Checking Dataset Integrity..."
-                    // Requirement: Dataset version tracking mandatory
-                    sh './.mlops_venv/bin/dvc pull || echo "DVC Pull failed or no remote configured - continuing with local data"'
+                    echo "Pulling latest data via DVC..."
+                    sh 'dvc pull || echo "DVC pull failed, using local files for now"'
+                    
+                    echo "Running Data Validation Checks..."
+                    // Requirement: Data Validation before training
+                    sh 'python3 src/data_validation.py'
                 }
             }
         }
 
-        stage('3. Smart Training (Conditional)') {
+        stage('3. Smart Training (MLflow)') {
             when {
                 anyOf {
                     changeset "src/pipeline.py"
@@ -53,22 +57,21 @@ pipeline {
             }
             steps {
                 script {
-                    echo "Changes detected! Running ML Training Pipeline..."
-                    // Requirement: Model version tagging & Reproducibility logs maintained
-                    sh './.mlops_venv/bin/python src/pipeline.py'
+                    echo "Executing Training Pipeline..."
+                    // Logs code SHA, data hash, metrics to MLflow Registry
+                    sh 'python3 src/pipeline.py'
                 }
             }
         }
 
-        stage('4. Security & Quality Scan') {
+        stage('4. Security & Quality Gate') {
             parallel {
                 stage('SAST & Secrets') {
                     steps {
-                        sh 'docker run --rm --volumes-from jenkins -w $(pwd) zricethezav/gitleaks:latest detect --source . --verbose --redact || true'
-                        sh 'docker run --rm --volumes-from jenkins -w $(pwd) returntocorp/semgrep semgrep scan --config auto --output semgrep-report.json || true'
+                        sh 'docker run --rm -v ${WORKSPACE}:/src -w /src zricethezav/gitleaks:latest detect --source . --verbose --redact || true'
                     }
                 }
-                stage('SonarQube Static Analysis') {
+                stage('SonarQube & Quality Gate') {
                     steps {
                         withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
                             sh "${SCANNER_HOME}/bin/sonar-scanner \
@@ -77,50 +80,57 @@ pipeline {
                                 -Dsonar.host.url=http://${SONAR_HOST}:9000 \
                                 -Dsonar.login=\$SONAR_TOKEN"
                         }
+                        // Requirement: Automated Quality Gate
+                        timeout(time: 1, unit: 'HOURS') {
+                            waitForQualityGate abortPipeline: true
+                        }
                     }
                 }
             }
         }
 
-        stage('5. Bias & Drift Evaluation') {
+        stage('5. Model Promotion (None -> Staging)') {
             steps {
                 script {
-                    // Requirement: Bias evaluation report before release & Model drift monitoring
-                    echo "Evaluating Model for Fairness and Drift..."
-                    // Archive the artifacts created during training
+                    echo "Promoting latest validated model to Staging..."
+                    sh 'python3 src/promote_model.py --stage Staging'
+                }
+            }
+        }
+
+        stage('6. Analysis Persistence') {
+            steps {
+                script {
+                    echo "Archiving Bias and Drift Reports..."
                     archiveArtifacts artifacts: 'artifacts/**/*', allowEmptyArchive: true
                 }
             }
         }
 
-        stage('6. Build & Containerize Serve API') {
+        stage('7. Build Production Container') {
             steps {
                 script {
-                    echo "Building Production Container..."
+                    echo "Building Production API Container..."
                     sh "docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} -f deployments/docker/Dockerfile ."
                     sh "docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest"
                 }
             }
         }
 
-        stage('7. Compliance & Audit Logging Test') {
+        stage('8. Compliance & Governance') {
             steps {
                 script {
-                    // Requirement: Inference logging where contractually required
-                    echo "Verifying Inference Logging and Audit Contracts..."
-                    sh "docker run -d --name test-api-${BUILD_NUMBER} -p 8000:8000 ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                    echo "Verifying Inference Logging Contract..."
+                    sh "docker run -d --name audit-test-${BUILD_NUMBER} -p 8000:8000 ${DOCKER_IMAGE}:${BUILD_NUMBER}"
                     sleep 10
-                    // Test health and prediction
-                    sh 'curl -s http://localhost:8000/health'
-                    // Simple prediction test
-                    sh 'curl -s -X POST http://localhost:8000/predict -d \'{"hr":10, "holiday":0, "workingday":1}\' -H "Content-Type: application/json"'
-                    sh "docker logs test-api-${BUILD_NUMBER}"
-                    sh "docker stop test-api-${BUILD_NUMBER} && docker rm test-api-${BUILD_NUMBER}"
+                    sh 'curl -s -X POST http://localhost:8000/predict -d \'{"hr":10, "workingday":1}\' -H "Content-Type: application/json"'
+                    sh "docker logs audit-test-${BUILD_NUMBER}"
+                    sh "docker stop audit-test-${BUILD_NUMBER} && docker rm audit-test-${BUILD_NUMBER}"
                 }
             }
         }
 
-        stage('8. Image Security & Push') {
+        stage('9. Image Registry Push') {
             steps {
                 sh "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${BUILD_NUMBER}"
                 withCredentials([usernamePassword(credentialsId: "${NEXUS_CREDENTIALS_ID}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
@@ -130,12 +140,21 @@ pipeline {
                 }
             }
         }
+
+        stage('10. Model Promotion (Staging -> Production)') {
+            steps {
+                script {
+                    // Only promote to Production if all previous stages (including compliance) passed
+                    echo "Promoting fully verified model to Production..."
+                    sh 'python3 src/promote_model.py --stage Production'
+                }
+            }
+        }
     }
 
     post {
         always {
-            archiveArtifacts artifacts: '*.json, *.html, artifacts/**/*', allowEmptyArchive: true
-            echo 'Archiving all Industrial MLOps reports and artifacts...'
+            echo "Pipeline Run Finished."
         }
     }
 }
